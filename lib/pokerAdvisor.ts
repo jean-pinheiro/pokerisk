@@ -276,13 +276,7 @@ function monteCarloEquity(
     const heroScore = score7(hero7).score
     let best = heroScore
     let numBest = 1
-    const debug = {
-      fullBoard,
-      villainHands,
-      hero7,
-      heroCat: CAT_NAME[score7(hero7).cat],
-    };
-    console.log(JSON.stringify(debug));
+
     for (const hand of villainHands) {
       const vScore = score7([...hand, ...fullBoard]).score
       if (vScore > best) {
@@ -490,23 +484,19 @@ export function adviseAction(
   numOpponents: number,
   opts: AdviseOptions = {},
 ): AdviceResult {
+  console.log({ hole, board, numOpponents, street: inferStreet(board), opts: JSON.stringify(opts) });
   if (![0, 3, 4, 5].includes(board.length)) throw new Error("board must have 0,3,4,5 cards")
   if (numOpponents < 1) throw new Error("numOpponents must be ≥ 1")
   const trials = Math.max(1000, opts.trials ?? 30000)
   const street = inferStreet(board)
 
-  console.log({ hole, board, numOpponents, street: inferStreet(board) });
   const { winPct, tiePct } = monteCarloEquity(hole, board, numOpponents, trials)
   const equityPct = winPct + tiePct / 2
   const { action, rationale } = recommendAction(equityPct, street, numOpponents, opts.pot, opts.toCall)
   
   const possibleHands = listPossibleHands(hole, board)
 
-  console.log({
-    made: possibleHands.made,
-    drawsCount: possibleHands.draws.length,
-    rationale
-  });
+
   return {
     successPct: round1(equityPct),
     recommendedAction: action,

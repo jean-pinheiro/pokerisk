@@ -1,145 +1,278 @@
-"use client"
+"use client";
 
-import { useState, type FormEvent } from "react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { ChevronDown, ChevronUp } from "lucide-react"
-import { adviseAction, type Card, type AdviceResult } from "@/lib/pokerAdvisor"
+import type React from "react";
+import { useState, type FormEvent, useRef } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { ChevronDown, ChevronUp } from "lucide-react";
+import { adviseAction, type AdviceResult } from "@/lib/pokerAdvisor";
+import { parseCardList, type Card } from "@/lib/card-utils";
+import CardChip from "./card-chip";
+import DeckGrid from "./deck-grid";
 
 interface InputFormProps {
-  onResult: (result: AdviceResult) => void
-  isCalculating: boolean
-  setIsCalculating: (val: boolean) => void
+  onResult: (result: AdviceResult) => void;
+  isCalculating: boolean;
+  setIsCalculating: (val: boolean) => void;
 }
 
-export default function InputForm({ onResult, isCalculating, setIsCalculating }: InputFormProps) {
-  const [hand, setHand] = useState("Ah Kd")
-  const [board, setBoard] = useState("7c 8c Qd")
-  const [opponents, setOpponents] = useState(2)
-  const [showExtra, setShowExtra] = useState(false)
-  const [trials, setTrials] = useState(40000)
-  const [pot, setPot] = useState(100)
-  const [toCall, setToCall] = useState(50)
+export default function InputForm({
+  onResult,
+  isCalculating,
+  setIsCalculating,
+}: InputFormProps) {
+  const [handCards, setHandCards] = useState<Card[]>(["Ah", "Kd"]);
+  const [boardCards, setBoardCards] = useState<Card[]>(["7c", "8c", "Qd"]);
+  const [opponents, setOpponents] = useState(2);
 
-  const [errors, setErrors] = useState<Record<string, string>>({})
+  // Extra inputs UX
+  const [showExtra, setShowExtra] = useState(false);
+  const [trialsStr, setTrialsStr] = useState("40000"); // strings for smooth typing
+  const [potStr, setPotStr] = useState("100");
+  const [toCallStr, setToCallStr] = useState("50");
 
-  const normalizeCard = (c: string): string => {
-    if (c.length !== 2) return c
-    return c[0].toUpperCase() + c[1].toLowerCase()
-  }
+  const [handInput, setHandInput] = useState("");
+  const [boardInput, setBoardInput] = useState("");
+  const [showHandDeck, setShowHandDeck] = useState(false);
+  const [showBoardDeck, setShowBoardDeck] = useState(false);
 
-  const parseCards = (input: string): Card[] => {
-    return input
-      .split(/[\s,]+/)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0)
-      .map(normalizeCard) as Card[]
-  }
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const handInputRef = useRef<HTMLInputElement>(null);
+  const boardInputRef = useRef<HTMLInputElement>(null);
+
+  const usedCards = new Set<Card>([...handCards, ...boardCards]);
+
+  const handleHandInputChange = (value: string) => {
+    setHandInput(value);
+    if (value.trim()) {
+      const result = parseCardList(value, usedCards);
+      if (result.errors.length === 0 && result.cards.length > 0) {
+        const newCards = [...handCards, ...result.cards].slice(0, 2);
+        setHandCards(newCards);
+        setHandInput("");
+      }
+    }
+  };
+
+  const handleBoardInputChange = (value: string) => {
+    setBoardInput(value);
+    if (value.trim()) {
+      const result = parseCardList(value, usedCards);
+      if (result.errors.length === 0 && result.cards.length > 0) {
+        const newCards = [...boardCards, ...result.cards].slice(0, 5);
+        setBoardCards(newCards);
+        setBoardInput("");
+      }
+    }
+  };
+
+  const handleHandKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Backspace" && handInput === "" && handCards.length > 0) {
+      setHandCards(handCards.slice(0, -1));
+    }
+  };
+
+  const handleBoardKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Backspace" && boardInput === "" && boardCards.length > 0) {
+      setBoardCards(boardCards.slice(0, -1));
+    }
+  };
+
+  const handleHandCardSelect = (card: Card) => {
+    if (handCards.length < 2) setHandCards([...handCards, card]);
+  };
+  const handleBoardCardSelect = (card: Card) => {
+    if (boardCards.length < 5) setBoardCards([...boardCards, card]);
+  };
 
   const validateInputs = (): boolean => {
-    const newErrors: Record<string, string> = {}
+    const newErrors: Record<string, string> = {};
 
-    try {
-      const handCards = parseCards(hand)
-      if (handCards.length !== 2) {
-        newErrors.hand = "Must provide exactly 2 cards"
-      }
+    if (handCards.length !== 2) newErrors.hand = "Must provide exactly 2 cards";
+    if (![0, 3, 4, 5].includes(boardCards.length))
+      newErrors.board = "Board must have 0, 3, 4, or 5 cards";
+    if (opponents < 1 || opponents > 8)
+      newErrors.opponents = "Opponents must be between 1 and 8";
 
-      const boardCards = parseCards(board)
-      if (![0, 3, 4, 5].includes(boardCards.length)) {
-        newErrors.board = "Board must have 0, 3, 4, or 5 cards"
-      }
-
-      // Check for duplicates
-      const allCards = [...handCards, ...boardCards]
-      const uniqueCards = new Set(allCards)
-      if (uniqueCards.size !== allCards.length) {
-        newErrors.board = "Duplicate cards detected"
-      }
-
-      if (opponents < 1 || opponents > 8) {
-        newErrors.opponents = "Opponents must be between 1 and 8"
-      }
-
-      if (showExtra) {
-        if (trials < 1000) {
-          newErrors.trials = "Trials must be at least 1000"
-        }
-        if (pot < 0) {
-          newErrors.pot = "Pot must be non-negative"
-        }
-        if (toCall < 0) {
-          newErrors.toCall = "To call must be non-negative"
-        }
-      }
-    } catch (e) {
-      newErrors.general = e instanceof Error ? e.message : "Invalid input"
+    if (showExtra) {
+      const t = Number.parseInt(trialsStr, 10);
+      const p = Number.parseFloat(potStr);
+      const c = Number.parseFloat(toCallStr);
+      if (!Number.isFinite(t) || t < 1000)
+        newErrors.trials = "Trials must be at least 1000";
+      if (!Number.isFinite(p) || p < 0)
+        newErrors.pot = "Pot must be non-negative";
+      if (!Number.isFinite(c) || c < 0)
+        newErrors.toCall = "To call must be non-negative";
     }
 
-    setErrors(newErrors)
-    return Object.keys(newErrors).length === 0
-  }
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault()
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!validateInputs()) return;
 
-    if (!validateInputs()) return
+    setIsCalculating(true);
 
-    setIsCalculating(true)
-
-    // Use setTimeout to allow UI to update with loading state
     setTimeout(() => {
       try {
-        const handCards = parseCards(hand) as [Card, Card]
-        const boardCards = parseCards(board)
+        // Only pass extras if section is open
+        const opts = showExtra
+          ? {
+              trials: Number.parseInt(trialsStr, 10),
+              pot: Number.parseFloat(potStr),
+              toCall: Number.parseFloat(toCallStr),
+            }
+          : ({} as const);
 
-        const opts = showExtra ? { trials, pot, toCall } : { trials: 30000 }
-
-        const result = adviseAction(handCards, boardCards, opponents, opts)
-        onResult(result)
-        setErrors({})
+        const result = adviseAction(
+          handCards as [Card, Card],
+          boardCards,
+          opponents,
+          opts
+        );
+        onResult(result);
+        setErrors({});
       } catch (e) {
-        setErrors({ general: e instanceof Error ? e.message : "Calculation failed" })
+        setErrors({
+          general: e instanceof Error ? e.message : "Calculation failed",
+        });
       } finally {
-        setIsCalculating(false)
+        setIsCalculating(false);
       }
-    }, 100)
-  }
+    }, 100);
+  };
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-md p-6 border-2 border-amber-200">
+    <form
+      onSubmit={handleSubmit}
+      className="bg-white rounded-lg shadow-md p-6 border-2 border-amber-200"
+    >
       <div className="space-y-4">
+        {/* Hand */}
         <div>
           <Label htmlFor="hand" className="text-amber-900">
-            Your Hand
+            Your Hand (2 cards)
           </Label>
-          <Input
-            id="hand"
-            value={hand}
-            onChange={(e) => setHand(e.target.value)}
-            placeholder="Ah Kd"
-            className="font-mono"
-            disabled={isCalculating}
-          />
-          {errors.hand && <p className="text-sm text-red-600 mt-1">{errors.hand}</p>}
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-2 min-h-[2.5rem] p-2 border-2 border-amber-200 rounded-md bg-amber-50">
+              {handCards.map((card, idx) => (
+                <CardChip
+                  key={`${card}-${idx}`}
+                  card={card}
+                  onRemove={() =>
+                    setHandCards(handCards.filter((_, i) => i !== idx))
+                  }
+                  disabled={isCalculating}
+                />
+              ))}
+              {handCards.length < 2 && (
+                <Input
+                  ref={handInputRef}
+                  id="hand"
+                  value={handInput}
+                  onChange={(e) => handleHandInputChange(e.target.value)}
+                  onKeyDown={handleHandKeyDown}
+                  placeholder="Type: Ah, A♥, or click below..."
+                  className="flex-1 min-w-[150px] border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 font-mono"
+                  disabled={isCalculating}
+                />
+              )}
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setShowHandDeck((v) => !v)}
+              disabled={isCalculating}
+              className="w-full"
+            >
+              {showHandDeck ? "Hide" : "Show"} Deck Picker
+              {showHandDeck ? (
+                <ChevronUp className="ml-2 h-4 w-4" />
+              ) : (
+                <ChevronDown className="ml-2 h-4 w-4" />
+              )}
+            </Button>
+            {showHandDeck && (
+              <div className="p-3 border-2 border-amber-200 rounded-md bg-amber-50">
+                <DeckGrid
+                  onCardSelect={handleHandCardSelect}
+                  usedCards={usedCards}
+                  disabled={isCalculating}
+                />
+              </div>
+            )}
+          </div>
+          {errors.hand && (
+            <p className="text-sm text-red-600 mt-1">{errors.hand}</p>
+          )}
         </div>
 
+        {/* Board */}
         <div>
           <Label htmlFor="board" className="text-amber-900">
-            Table Cards
+            Table Cards (0, 3, 4, or 5 cards)
           </Label>
-          <Input
-            id="board"
-            value={board}
-            onChange={(e) => setBoard(e.target.value)}
-            placeholder="7c 8c Qd"
-            className="font-mono"
-            disabled={isCalculating}
-          />
-          {errors.board && <p className="text-sm text-red-600 mt-1">{errors.board}</p>}
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-2 min-h-[2.5rem] p-2 border-2 border-amber-200 rounded-md bg-amber-50">
+              {boardCards.map((card, idx) => (
+                <CardChip
+                  key={`${card}-${idx}`}
+                  card={card}
+                  onRemove={() =>
+                    setBoardCards(boardCards.filter((_, i) => i !== idx))
+                  }
+                  disabled={isCalculating}
+                />
+              ))}
+              {boardCards.length < 5 && (
+                <Input
+                  ref={boardInputRef}
+                  id="board"
+                  value={boardInput}
+                  onChange={(e) => handleBoardInputChange(e.target.value)}
+                  onKeyDown={handleBoardKeyDown}
+                  placeholder="Type: 7c 8c Qd or click below..."
+                  className="flex-1 min-w-[150px] border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 font-mono"
+                  disabled={isCalculating}
+                />
+              )}
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setShowBoardDeck((v) => !v)}
+              disabled={isCalculating}
+              className="w-full"
+            >
+              {showBoardDeck ? "Hide" : "Show"} Deck Picker
+              {showBoardDeck ? (
+                <ChevronUp className="ml-2 h-4 w-4" />
+              ) : (
+                <ChevronDown className="ml-2 h-4 w-4" />
+              )}
+            </Button>
+            {showBoardDeck && (
+              <div className="p-3 border-2 border-amber-200 rounded-md bg-amber-50">
+                <DeckGrid
+                  onCardSelect={handleBoardCardSelect}
+                  usedCards={usedCards}
+                  disabled={isCalculating}
+                />
+              </div>
+            )}
+          </div>
+          {errors.board && (
+            <p className="text-sm text-red-600 mt-1">{errors.board}</p>
+          )}
         </div>
 
+        {/* Opponents */}
         <div>
           <Label htmlFor="opponents" className="text-amber-900">
             Number of Opponents
@@ -153,18 +286,25 @@ export default function InputForm({ onResult, isCalculating, setIsCalculating }:
             onChange={(e) => setOpponents(Number.parseInt(e.target.value) || 1)}
             disabled={isCalculating}
           />
-          {errors.opponents && <p className="text-sm text-red-600 mt-1">{errors.opponents}</p>}
+          {errors.opponents && (
+            <p className="text-sm text-red-600 mt-1">{errors.opponents}</p>
+          )}
         </div>
 
+        {/* Extra inputs */}
         <Button
           type="button"
           variant="outline"
-          onClick={() => setShowExtra(!showExtra)}
+          onClick={() => setShowExtra((v) => !v)}
           className="w-full"
           disabled={isCalculating}
         >
-          Extra inputs
-          {showExtra ? <ChevronUp className="ml-2 h-4 w-4" /> : <ChevronDown className="ml-2 h-4 w-4" />}
+          Extra inputs{" "}
+          {showExtra ? (
+            <ChevronUp className="ml-2 h-4 w-4" />
+          ) : (
+            <ChevronDown className="ml-2 h-4 w-4" />
+          )}
         </Button>
 
         {showExtra && (
@@ -178,11 +318,13 @@ export default function InputForm({ onResult, isCalculating, setIsCalculating }:
                 type="number"
                 min={1000}
                 step={1000}
-                value={trials}
-                onChange={(e) => setTrials(Number.parseInt(e.target.value) || 30000)}
+                value={trialsStr}
+                onChange={(e) => setTrialsStr(e.target.value)} // keep as string
                 disabled={isCalculating}
               />
-              {errors.trials && <p className="text-sm text-red-600 mt-1">{errors.trials}</p>}
+              {errors.trials && (
+                <p className="text-sm text-red-600 mt-1">{errors.trials}</p>
+              )}
             </div>
 
             <div>
@@ -193,11 +335,14 @@ export default function InputForm({ onResult, isCalculating, setIsCalculating }:
                 id="pot"
                 type="number"
                 min={0}
-                value={pot}
-                onChange={(e) => setPot(Number.parseInt(e.target.value) || 0)}
+                step="any"
+                value={potStr}
+                onChange={(e) => setPotStr(e.target.value)} // keep as string
                 disabled={isCalculating}
               />
-              {errors.pot && <p className="text-sm text-red-600 mt-1">{errors.pot}</p>}
+              {errors.pot && (
+                <p className="text-sm text-red-600 mt-1">{errors.pot}</p>
+              )}
             </div>
 
             <div>
@@ -208,21 +353,32 @@ export default function InputForm({ onResult, isCalculating, setIsCalculating }:
                 id="toCall"
                 type="number"
                 min={0}
-                value={toCall}
-                onChange={(e) => setToCall(Number.parseInt(e.target.value) || 0)}
+                step="any"
+                value={toCallStr}
+                onChange={(e) => setToCallStr(e.target.value)} // keep as string
                 disabled={isCalculating}
               />
-              {errors.toCall && <p className="text-sm text-red-600 mt-1">{errors.toCall}</p>}
+              {errors.toCall && (
+                <p className="text-sm text-red-600 mt-1">{errors.toCall}</p>
+              )}
             </div>
           </div>
         )}
 
-        {errors.general && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{errors.general}</p>}
+        {errors.general && (
+          <p className="text-sm text-red-600 bg-red-50 p-2 rounded">
+            {errors.general}
+          </p>
+        )}
 
-        <Button type="submit" className="w-full bg-green-600 hover:bg-green-700" disabled={isCalculating}>
+        <Button
+          type="submit"
+          className="w-full bg-green-600 hover:bg-green-700"
+          disabled={isCalculating}
+        >
           {isCalculating ? "Calculating..." : "Calculate"}
         </Button>
       </div>
     </form>
-  )
+  );
 }
